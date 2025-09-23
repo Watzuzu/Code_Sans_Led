@@ -1,5 +1,6 @@
 #include <HID-Project.h>
 #include <FastLED.h>
+#include <EEPROM.h>
 
 // Déclaration des broches pour les boutons
 const int boutonPlayPause = 2;
@@ -27,6 +28,15 @@ const int NUM_SLIDERS = 3; // Utiliser seulement 3 potentiomètres
 const int analogInputs[NUM_SLIDERS] = {A0, A1, A2}; // A0, A1, A2 pour les potentiomètres
 
 int analogSliderValues[NUM_SLIDERS];
+
+// Button mapping persisted in EEPROM
+// Index 0 = boutonPlayPause, 1 = boutonPrecedent, 2 = boutonSuivant
+enum ButtonAction : uint8_t { ACT_NONE = 0, ACT_PLAYPAUSE = 1, ACT_PREVIOUS = 2, ACT_NEXT = 3 };
+uint8_t buttonMapping[3] = { ACT_PLAYPAUSE, ACT_PREVIOUS, ACT_NEXT }; // defaults
+const int EEPROM_MAP_ADDR = 0; // starting address in EEPROM to store 3 bytes
+
+// Serial parsing buffer
+String serialBuffer = "";
 
 void setup() {
   // Initialisation des broches comme entrées avec résistance de tirage interne
@@ -81,10 +91,26 @@ void setup() {
   // Initialiser HID (clavier)
   Consumer.begin();
   Serial.begin(9600);
+  loadMappingFromEEPROM();
 
 }
 
 void loop() {
+
+  // Parse serial commands (non bloquant)
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r' || c == '\n') {
+      if (serialBuffer.length() > 0) {
+        processSerialCommand(serialBuffer);
+        serialBuffer = "";
+      }
+    } else {
+      serialBuffer += c;
+      // limit buffer size
+      if (serialBuffer.length() > 128) serialBuffer = serialBuffer.substring(serialBuffer.length() - 128);
+    }
+  }
 
   FastLED.setBrightness(bright);
   FastLED.show();
@@ -133,26 +159,30 @@ void loop() {
 
   }else {
 
+    // Gestion des boutons via mapping configurable
+    // boutonPlayPause (index 0)
     if (digitalRead(boutonPlayPause) == LOW) {
       delay(20); // Antirebond
       if (digitalRead(boutonPlayPause) == LOW) {
-        Consumer.write(MEDIA_PLAY_PAUSE); // Envoi la commande play/pause
+        performButtonAction(buttonMapping[0]);
         while (digitalRead(boutonPlayPause) == LOW); // Attendre que le bouton soit relâché
       }
     }
 
+    // boutonPrecedent (index 1)
     if (digitalRead(boutonPrecedent) == LOW) {
       delay(20); // Antirebond
       if (digitalRead(boutonPrecedent) == LOW) {
-        Consumer.write(MEDIA_PREVIOUS); // Envoi la commande précédent
+        performButtonAction(buttonMapping[1]);
         while (digitalRead(boutonPrecedent) == LOW); // Attendre que le bouton soit relâché
       }
     }
 
+    // boutonSuivant (index 2)
     if (digitalRead(boutonSuivant) == LOW) {
       delay(20); // Antirebond
       if (digitalRead(boutonSuivant) == LOW) {
-        Consumer.write(MEDIA_NEXT); // Envoi la commande suivant
+        performButtonAction(buttonMapping[2]);
         while (digitalRead(boutonSuivant) == LOW); // Attendre que le bouton soit relâché
       }
     }
@@ -205,6 +235,103 @@ void loop() {
 
   delay(10); // Petit délai pour éviter de saturer le processeur
   
+}
+
+// Effectue l'action associée au bouton
+void performButtonAction(uint8_t action) {
+  switch (action) {
+    case ACT_PLAYPAUSE:
+      Consumer.write(MEDIA_PLAY_PAUSE);
+      break;
+    case ACT_PREVIOUS:
+      Consumer.write(MEDIA_PREVIOUS);
+      break;
+    case ACT_NEXT:
+      Consumer.write(MEDIA_NEXT);
+      break;
+    default:
+      // ACT_NONE ou non reconnu -> ne rien faire
+      break;
+  }
+}
+
+// EEPROM helpers
+void loadMappingFromEEPROM() {
+  for (int i = 0; i < 3; i++) {
+    uint8_t v = EEPROM.read(EEPROM_MAP_ADDR + i);
+    if (v >= ACT_NONE && v <= ACT_NEXT) {
+      buttonMapping[i] = v;
+    } else {
+      // leave default if invalid
+    }
+  }
+}
+
+void saveMappingToEEPROM() {
+  for (int i = 0; i < 3; i++) {
+    EEPROM.update(EEPROM_MAP_ADDR + i, buttonMapping[i]);
+  }
+}
+
+// Serial command processor
+// Commands:
+// SET <idx> <ACTION>  e.g. "SET 0 PLAYPAUSE" or "SET 2 NEXT"
+// GET                -> returns current mapping
+// RESET              -> restore defaults
+void processSerialCommand(String cmd) {
+  cmd.trim();
+  cmd.toUpperCase();
+  if (cmd.startsWith("SET ")) {
+    // parse
+    int firstSpace = cmd.indexOf(' ');
+    int secondSpace = cmd.indexOf(' ', firstSpace + 1);
+    if (secondSpace > 0) {
+      String idxStr = cmd.substring(firstSpace + 1, secondSpace);
+      String actStr = cmd.substring(secondSpace + 1);
+      int idx = idxStr.toInt();
+      uint8_t act = ACT_NONE;
+      if (actStr == "PLAYPAUSE") act = ACT_PLAYPAUSE;
+      else if (actStr == "PREVIOUS") act = ACT_PREVIOUS;
+      else if (actStr == "NEXT") act = ACT_NEXT;
+
+      if (idx >= 0 && idx < 3) {
+        buttonMapping[idx] = act;
+        saveMappingToEEPROM();
+        Serial.println("OK");
+        return;
+      }
+    }
+    Serial.println("ERR");
+    return;
+  }
+
+  if (cmd == "GET") {
+    // print mapping as e.g. "0:PLAYPAUSE,1:PREVIOUS,2:NEXT"
+    String out = "";
+    for (int i = 0; i < 3; i++) {
+      if (i) out += ",";
+      out += String(i) + ":";
+      switch (buttonMapping[i]) {
+        case ACT_PLAYPAUSE: out += "PLAYPAUSE"; break;
+        case ACT_PREVIOUS: out += "PREVIOUS"; break;
+        case ACT_NEXT: out += "NEXT"; break;
+        default: out += "NONE"; break;
+      }
+    }
+    Serial.println(out);
+    return;
+  }
+
+  if (cmd == "RESET") {
+    buttonMapping[0] = ACT_PLAYPAUSE;
+    buttonMapping[1] = ACT_PREVIOUS;
+    buttonMapping[2] = ACT_NEXT;
+    saveMappingToEEPROM();
+    Serial.println("OK");
+    return;
+  }
+
+  Serial.println("UNKNOWN");
 }
 
 void updateSliderValues() {

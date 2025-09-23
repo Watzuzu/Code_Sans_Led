@@ -44,6 +44,7 @@ const int buttonPins[BUTTON_COUNT] = { boutonPlayPause, boutonPrecedent, boutonS
 int lastButtonState[BUTTON_COUNT]; // HIGH or LOW
 unsigned long lastDebounceTime[BUTTON_COUNT];
 const unsigned long DEBOUNCE_DELAY = 30; // ms
+int stableButtonState[BUTTON_COUNT];
 
 void setup() {
   // Initialisation des broches comme entrées avec résistance de tirage interne
@@ -104,6 +105,7 @@ void setup() {
   for (int i = 0; i < BUTTON_COUNT; i++) {
     lastButtonState[i] = digitalRead(buttonPins[i]);
     lastDebounceTime[i] = 0;
+    stableButtonState[i] = lastButtonState[i];
   }
 
 }
@@ -283,6 +285,19 @@ void processSerialCommand(String cmd) {
       if (idx >= 0 && idx < 3) {
         buttonMapping[idx] = act;
         saveMappingToEEPROM();
+        // Reset debounce/stable states so mapping takes effect immediately
+        unsigned long now = millis();
+        for (int j = 0; j < BUTTON_COUNT; j++) {
+          lastDebounceTime[j] = now;
+          lastButtonState[j] = digitalRead(buttonPins[j]);
+          stableButtonState[j] = lastButtonState[j];
+        }
+        // If any button is currently pressed, trigger its action immediately
+        for (int j = 0; j < BUTTON_COUNT; j++) {
+          if (digitalRead(buttonPins[j]) == LOW) {
+            performButtonAction(buttonMapping[j]);
+          }
+        }
         Serial.println("OK");
         return;
       }
@@ -313,6 +328,19 @@ void processSerialCommand(String cmd) {
     buttonMapping[1] = ACT_PREVIOUS;
     buttonMapping[2] = ACT_NEXT;
     saveMappingToEEPROM();
+    // Reset debounce/stable states so mapping takes effect immediately
+    unsigned long now = millis();
+    for (int j = 0; j < BUTTON_COUNT; j++) {
+      lastDebounceTime[j] = now;
+      lastButtonState[j] = digitalRead(buttonPins[j]);
+      stableButtonState[j] = lastButtonState[j];
+    }
+    // If any button is currently pressed, trigger its action immediately
+    for (int j = 0; j < BUTTON_COUNT; j++) {
+      if (digitalRead(buttonPins[j]) == LOW) {
+        performButtonAction(buttonMapping[j]);
+      }
+    }
     Serial.println("OK");
     return;
   }
@@ -326,18 +354,26 @@ void readButtonsEdge() {
   for (int i = 0; i < BUTTON_COUNT; i++) {
     int reading = digitalRead(buttonPins[i]);
     if (reading != lastButtonState[i]) {
-      // reset debounce timer
+      // change detected -> immediate falling edge trigger
       lastDebounceTime[i] = now;
+      // immediate activation on HIGH->LOW
+      if (lastButtonState[i] == HIGH && reading == LOW) {
+        performButtonAction(buttonMapping[i]);
+        // consider it stable pressed to avoid retrigger from bounce
+        stableButtonState[i] = LOW;
+        lastButtonState[i] = reading;
+        // set debounce base time
+        lastDebounceTime[i] = now;
+        continue; // go to next button
+      }
     }
 
+    // regular debounce/stable update
     if ((now - lastDebounceTime[i]) > DEBOUNCE_DELAY) {
-      // stable
-      static int stableState[BUTTON_COUNT] = { HIGH, HIGH, HIGH };
-      if (reading != stableState[i]) {
-        stableState[i] = reading;
-        // detect falling edge (HIGH -> LOW) => button pressed
-        if (stableState[i] == LOW) {
-          // perform mapped action immediately
+      if (reading != stableButtonState[i]) {
+        stableButtonState[i] = reading;
+        // falling edge after stable period (backup)
+        if (stableButtonState[i] == LOW) {
           performButtonAction(buttonMapping[i]);
         }
       }

@@ -38,6 +38,13 @@ const int EEPROM_MAP_ADDR = 0; // starting address in EEPROM to store 3 bytes
 // Serial parsing buffer
 String serialBuffer = "";
 
+// Debounce / edge detection for instant activation
+const int BUTTON_COUNT = 3; // playpause, previous, next
+const int buttonPins[BUTTON_COUNT] = { boutonPlayPause, boutonPrecedent, boutonSuivant };
+int lastButtonState[BUTTON_COUNT]; // HIGH or LOW
+unsigned long lastDebounceTime[BUTTON_COUNT];
+const unsigned long DEBOUNCE_DELAY = 30; // ms
+
 void setup() {
   // Initialisation des broches comme entrées avec résistance de tirage interne
   pinMode(boutonPlayPause, INPUT_PULLUP);
@@ -92,6 +99,12 @@ void setup() {
   Consumer.begin();
   Serial.begin(9600);
   loadMappingFromEEPROM();
+
+  // init debounce states
+  for (int i = 0; i < BUTTON_COUNT; i++) {
+    lastButtonState[i] = digitalRead(buttonPins[i]);
+    lastDebounceTime[i] = 0;
+  }
 
 }
 
@@ -157,36 +170,9 @@ void loop() {
       leds[2] = CRGB::Blue;
     }
 
-  }else {
-
-    // Gestion des boutons via mapping configurable
-    // boutonPlayPause (index 0)
-    if (digitalRead(boutonPlayPause) == LOW) {
-      delay(20); // Antirebond
-      if (digitalRead(boutonPlayPause) == LOW) {
-        performButtonAction(buttonMapping[0]);
-        while (digitalRead(boutonPlayPause) == LOW); // Attendre que le bouton soit relâché
-      }
-    }
-
-    // boutonPrecedent (index 1)
-    if (digitalRead(boutonPrecedent) == LOW) {
-      delay(20); // Antirebond
-      if (digitalRead(boutonPrecedent) == LOW) {
-        performButtonAction(buttonMapping[1]);
-        while (digitalRead(boutonPrecedent) == LOW); // Attendre que le bouton soit relâché
-      }
-    }
-
-    // boutonSuivant (index 2)
-    if (digitalRead(boutonSuivant) == LOW) {
-      delay(20); // Antirebond
-      if (digitalRead(boutonSuivant) == LOW) {
-        performButtonAction(buttonMapping[2]);
-        while (digitalRead(boutonSuivant) == LOW); // Attendre que le bouton soit relâché
-      }
-    }
-
+  } else {
+    // Use edge-detection debounce to trigger actions instantly on press
+    readButtonsEdge();
   }
 
   if (rambow == true) {
@@ -332,6 +318,33 @@ void processSerialCommand(String cmd) {
   }
 
   Serial.println("UNKNOWN");
+}
+
+// Non-blocking edge detection for button presses
+void readButtonsEdge() {
+  unsigned long now = millis();
+  for (int i = 0; i < BUTTON_COUNT; i++) {
+    int reading = digitalRead(buttonPins[i]);
+    if (reading != lastButtonState[i]) {
+      // reset debounce timer
+      lastDebounceTime[i] = now;
+    }
+
+    if ((now - lastDebounceTime[i]) > DEBOUNCE_DELAY) {
+      // stable
+      static int stableState[BUTTON_COUNT] = { HIGH, HIGH, HIGH };
+      if (reading != stableState[i]) {
+        stableState[i] = reading;
+        // detect falling edge (HIGH -> LOW) => button pressed
+        if (stableState[i] == LOW) {
+          // perform mapped action immediately
+          performButtonAction(buttonMapping[i]);
+        }
+      }
+    }
+
+    lastButtonState[i] = reading;
+  }
 }
 
 void updateSliderValues() {

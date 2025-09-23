@@ -48,7 +48,8 @@ const int BUTTON_COUNT = 3; // playpause, previous, next
 const int buttonPins[BUTTON_COUNT] = { boutonPlayPause, boutonPrecedent, boutonSuivant };
 int lastButtonState[BUTTON_COUNT]; // HIGH or LOW
 unsigned long lastDebounceTime[BUTTON_COUNT];
-const unsigned long DEBOUNCE_DELAY = 0; // ms (minimal debounce for maximum réactivité)
+const unsigned long DEBOUNCE_DELAY = 20; // ms software debounce to avoid multiple triggers
+const unsigned long IRQ_DEBOUNCE_MS = 30; // ms minimal spacing between IRQ-handled triggers
 int stableButtonState[BUTTON_COUNT];
 // Animation / effect timers to avoid blocking
 unsigned long lastAnimMillis = 0;
@@ -147,12 +148,17 @@ void loop() {
   unsigned long now_irq = millis();
   for (int i = 0; i < BUTTON_COUNT; i++) {
     if (irqButtonPressed[i]) {
+      // clear flag immediately to avoid ISR retriggering race while we process
       irqButtonPressed[i] = false;
-      // basic time debouncing
-      if (now_irq - lastIrqHandledTime[i] > 1) {
+      // coarse debounce for IRQ path to avoid multiple firings from mechanical bounce
+      if (now_irq - lastIrqHandledTime[i] > IRQ_DEBOUNCE_MS) {
         lastIrqHandledTime[i] = now_irq;
         // Use immediate press/release mapped to proper HID code
         performButtonActionImmediate(buttonMapping[i]);
+        // mark software state as pressed so polling doesn't re-trigger the same press
+        lastButtonState[i] = LOW;
+        stableButtonState[i] = LOW;
+        lastDebounceTime[i] = now_irq;
       }
     }
   }
@@ -345,6 +351,11 @@ void processSerialCommand(String cmd) {
           lastButtonState[j] = digitalRead(buttonPins[j]);
           stableButtonState[j] = lastButtonState[j];
         }
+        // Clear IRQ flags and timers to avoid double/triple triggers
+        for (int j = 0; j < BUTTON_COUNT; j++) {
+          irqButtonPressed[j] = false;
+          lastIrqHandledTime[j] = now;
+        }
         // If any button is currently pressed, trigger its action immediately
         for (int j = 0; j < BUTTON_COUNT; j++) {
           if (digitalRead(buttonPins[j]) == LOW) {
@@ -405,6 +416,8 @@ void processSerialCommand(String cmd) {
 void readButtonsEdge() {
   unsigned long now = millis();
   for (int i = 0; i < BUTTON_COUNT; i++) {
+    // skip polling for pins if IRQ attached; IRQ path handles detection
+    if (irqAttached[i]) continue;
     int reading = digitalRead(buttonPins[i]);
     if (reading != lastButtonState[i]) {
       // change detected -> immediate falling edge trigger

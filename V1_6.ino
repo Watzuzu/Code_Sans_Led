@@ -2,6 +2,11 @@
 #include <FastLED.h>
 #include <EEPROM.h>
 
+// Define FAST_INPUT_ONLY = 1 to disable LEDs/slider work and prioritize input/HID paths
+#ifndef FAST_INPUT_ONLY
+#define FAST_INPUT_ONLY 1
+#endif
+
 // Déclaration des broches pour les boutons
 const int boutonPlayPause = 2;
 const int boutonPrecedent = 3;
@@ -43,8 +48,22 @@ const int BUTTON_COUNT = 3; // playpause, previous, next
 const int buttonPins[BUTTON_COUNT] = { boutonPlayPause, boutonPrecedent, boutonSuivant };
 int lastButtonState[BUTTON_COUNT]; // HIGH or LOW
 unsigned long lastDebounceTime[BUTTON_COUNT];
-const unsigned long DEBOUNCE_DELAY = 30; // ms
+const unsigned long DEBOUNCE_DELAY = 0; // ms (minimal debounce for maximum réactivité)
 int stableButtonState[BUTTON_COUNT];
+// Animation / effect timers to avoid blocking
+unsigned long lastAnimMillis = 0;
+unsigned long lastEffectToggleMillis = 0;
+const unsigned long EFFECT_TOGGLE_DEBOUNCE = 10; // ms
+bool ledsDirty = false;
+// IRQ-based immediate detection
+volatile bool irqButtonPressed[BUTTON_COUNT] = { false, false, false };
+unsigned long lastIrqHandledTime[BUTTON_COUNT] = {0,0,0};
+bool irqAttached[BUTTON_COUNT] = { false, false, false };
+
+// ISR prototypes
+void isr_button0();
+void isr_button1();
+void isr_button2();
 
 void setup() {
   // Initialisation des broches comme entrées avec résistance de tirage interne
@@ -57,16 +76,20 @@ void setup() {
   pinMode(LedD, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
 
+#if !FAST_INPUT_ONLY
   FastLED.addLeds <WS2812, LED_PIN, GRB>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
 
   leds[0] = CRGB::Red;
   leds[1] = CRGB::White;
   leds[2] = CRGB::Blue;
+#endif
 
     // Initialisation des broches pour les potentiomètres
+#if !FAST_INPUT_ONLY
   for (int i = 0; i < NUM_SLIDERS; i++) {
     pinMode(analogInputs[i], INPUT);
   }
+#endif
 
   digitalWrite(LedD, HIGH);
   digitalWrite(LedG, HIGH);
@@ -108,9 +131,31 @@ void setup() {
     stableButtonState[i] = lastButtonState[i];
   }
 
+  // Try to attach interrupts for minimal latency (if platform supports it)
+  // digitalPinToInterrupt(pin) returns -1 if not attachable on some pins/boards
+  int irq0 = digitalPinToInterrupt(buttonPins[0]);
+  int irq1 = digitalPinToInterrupt(buttonPins[1]);
+  int irq2 = digitalPinToInterrupt(buttonPins[2]);
+  if (irq0 != NOT_AN_INTERRUPT) { attachInterrupt(irq0, isr_button0, FALLING); irqAttached[0] = true; }
+  if (irq1 != NOT_AN_INTERRUPT) { attachInterrupt(irq1, isr_button1, FALLING); irqAttached[1] = true; }
+  if (irq2 != NOT_AN_INTERRUPT) { attachInterrupt(irq2, isr_button2, FALLING); irqAttached[2] = true; }
+
 }
 
 void loop() {
+  // Process IRQ flags first for absolute minimal latency
+  unsigned long now_irq = millis();
+  for (int i = 0; i < BUTTON_COUNT; i++) {
+    if (irqButtonPressed[i]) {
+      irqButtonPressed[i] = false;
+      // basic time debouncing
+      if (now_irq - lastIrqHandledTime[i] > 1) {
+        lastIrqHandledTime[i] = now_irq;
+        // Use immediate press/release mapped to proper HID code
+        performButtonActionImmediate(buttonMapping[i]);
+      }
+    }
+  }
 
   // Parse serial commands (non bloquant)
   while (Serial.available()) {
@@ -127,71 +172,73 @@ void loop() {
     }
   }
 
+  
+
+  // Handle button edge detection only if IRQs not available
+  if (!(irqAttached[0] && irqAttached[1] && irqAttached[2])) {
+    readButtonsEdge();
+  }
+  // get current time for animations and effects
+  unsigned long now = millis();
+
+#if !FAST_INPUT_ONLY
+  // Update animations non-blocking; mark LEDs dirty instead of showing immediately
   FastLED.setBrightness(bright);
-  FastLED.show();
+  if (rambow == true) {
+    if (now - lastAnimMillis >= max(1, speed)) {
+      for (int i = 0; i < NUM_LEDS; i++) {
+        leds[i] = CHSV(baza + i * 5, 255, 255);
+      }
+      baza++;
+      lastAnimMillis = now;
+      ledsDirty = true;
+    }
+  }
+#endif
 
   // Lire l'état des boutons (LOW = appuyé, HIGH = relâché)
   if(digitalRead(poussBoutG) == HIGH) {
-    if(digitalRead(boutonPrecedent) == LOW){
-      if(cyclone == true){
-        cyclone = false;
-      }
-      if(rambow == false) {
-        rambow = true;
-        delay(200);
-      } else {
-        rambow = false;
-        delay(200);
-      }
+    // non-blocking toggles on other buttons when poussBoutG is HIGH
+    // use EFFECT_TOGGLE_DEBOUNCE to avoid multiple toggles
+    unsigned long nowEffect = millis();
+    if (digitalRead(boutonPrecedent) == LOW && (nowEffect - lastEffectToggleMillis >= EFFECT_TOGGLE_DEBOUNCE)) {
+      cyclone = false;
+      rambow = !rambow;
+      lastEffectToggleMillis = nowEffect;
     }
 
-    if(digitalRead(boutonPlayPause) == LOW){
-      if(rambow == true){
-        rambow = false;
-      }
-      if(cyclone == false) {
-        cyclone = true;
-        delay(200);
-      } else {
-        cyclone = false;
-        delay(200);
-      }
+    if (digitalRead(boutonPlayPause) == LOW && (nowEffect - lastEffectToggleMillis >= EFFECT_TOGGLE_DEBOUNCE)) {
+      rambow = false;
+      cyclone = !cyclone;
+      lastEffectToggleMillis = nowEffect;
     }
 
-    if(digitalRead(boutonSuivant) == LOW){
-      if(rambow == true){
-        rambow = false;
-      }
-
-      if(cyclone == true){
-        cyclone = false;
-
-      }
-      leds[0] = CRGB::Red;
-      leds[1] = CRGB::White;
-      leds[2] = CRGB::Blue;
+    if (digitalRead(boutonSuivant) == LOW && (nowEffect - lastEffectToggleMillis >= EFFECT_TOGGLE_DEBOUNCE)) {
+      rambow = false;
+      cyclone = false;
+#if !FAST_INPUT_ONLY
+  leds[0] = CRGB::Red;
+  leds[1] = CRGB::White;
+  leds[2] = CRGB::Blue;
+  ledsDirty = true;
+#endif
+      lastEffectToggleMillis = nowEffect;
     }
 
   } else {
     // Use edge-detection debounce to trigger actions instantly on press
-    readButtonsEdge();
+    // (already called earlier as priority)
   }
 
-  if (rambow == true) {
-
-    for (int i = 0; i < NUM_LEDS; i++) {
-        leds[i] = CHSV(baza+ i * 5, 255, 255);
-      }
-      baza++;
-      delay(speed);
-
-  }
-
+  // cyclone effect set colors (non-blocking, colors update immediately)
+#if !FAST_INPUT_ONLY
   if (cyclone == true) {
     leds[0] = CRGB(color1, color2, color3);
     leds[1] = CRGB(color1, color2, color3);
     leds[2] = CRGB(color1, color2, color3);
+    ledsDirty = true;
   }
+#endif
 
 
   if (digitalRead(poussBoutG) == LOW) {
@@ -206,6 +253,7 @@ void loop() {
     digitalWrite(LedD, HIGH);
   }
 
+#if !FAST_INPUT_ONLY
   if (digitalRead(poussBoutG) == LOW) {
     updateSliderValues(); // Lire les valeurs des potentiomètres
     sendSliderValues();   // Envoyer les valeurs sur le port série
@@ -220,9 +268,14 @@ void loop() {
     }
 
   }
+#endif
 
-  delay(10); // Petit délai pour éviter de saturer le processeur
-  
+  // no blocking delay to keep input latency minimal
+  // show LEDs once per loop if needed
+  if (ledsDirty) {
+    FastLED.show();
+    ledsDirty = false;
+  }
 }
 
 // Effectue l'action associée au bouton
@@ -380,6 +433,40 @@ void readButtonsEdge() {
     }
 
     lastButtonState[i] = reading;
+  }
+}
+
+// ISR implementations: set flag only (keep ISR short)
+void isr_button0() {
+  irqButtonPressed[0] = true;
+}
+void isr_button1() {
+  irqButtonPressed[1] = true;
+}
+void isr_button2() {
+  irqButtonPressed[2] = true;
+}
+
+// Immediate action using press/release for lower HID latency
+void performButtonActionImmediate(uint8_t action) {
+  switch (action) {
+    case ACT_PLAYPAUSE:
+  Consumer.press(MEDIA_PLAY_PAUSE);
+  delayMicroseconds(50);
+  Consumer.release(MEDIA_PLAY_PAUSE);
+      break;
+    case ACT_PREVIOUS:
+  Consumer.press(MEDIA_PREVIOUS);
+  delayMicroseconds(50);
+  Consumer.release(MEDIA_PREVIOUS);
+      break;
+    case ACT_NEXT:
+  Consumer.press(MEDIA_NEXT);
+  delayMicroseconds(50);
+  Consumer.release(MEDIA_NEXT);
+      break;
+    default:
+      break;
   }
 }
 

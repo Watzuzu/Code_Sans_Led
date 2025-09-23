@@ -3,8 +3,9 @@
 #include <EEPROM.h>
 
 // Define FAST_INPUT_ONLY = 1 to disable LEDs/slider work and prioritize input/HID paths
+// Default to 0 so LEDs and sliders are enabled by default
 #ifndef FAST_INPUT_ONLY
-#define FAST_INPUT_ONLY 1
+#define FAST_INPUT_ONLY 0
 #endif
 
 // Déclaration des broches pour les boutons
@@ -54,6 +55,8 @@ int stableButtonState[BUTTON_COUNT];
 // Animation / effect timers to avoid blocking
 unsigned long lastAnimMillis = 0;
 unsigned long lastEffectToggleMillis = 0;
+unsigned long lastSliderSendMillis = 0;
+const unsigned long SLIDER_SEND_INTERVAL = 100; // ms interval between slider reports
 const unsigned long EFFECT_TOGGLE_DEBOUNCE = 10; // ms
 bool ledsDirty = false;
 // IRQ-based immediate detection
@@ -259,20 +262,35 @@ void loop() {
     digitalWrite(LedD, HIGH);
   }
 
-#if !FAST_INPUT_ONLY
-  if (digitalRead(poussBoutG) == LOW) {
-    updateSliderValues(); // Lire les valeurs des potentiomètres
-    sendSliderValues();   // Envoyer les valeurs sur le port série
-  }else{
-    if (digitalRead(poussBoutD) == LOW) {
-      bright = (analogRead(analogInputs[0]) / 4);
-      speed = (analogRead(analogInputs[1]) / 25);
-    }else {
-      color1 = (analogRead(analogInputs[0]) / 4);
-      color2 = (analogRead(analogInputs[1]) / 4);
-      color3 = (analogRead(analogInputs[2]) / 4);
-    }
+  // Periodically send slider values regardless of poussBoutG
+  unsigned long nowSlider = millis();
+  if (nowSlider - lastSliderSendMillis >= SLIDER_SEND_INTERVAL) {
+    lastSliderSendMillis = nowSlider;
+    updateSliderValues();
+    sendSliderValues();
+  }
 
+  // poussBoutG: when held, use potentiometers to set LED colors (immediate feedback)
+  if (digitalRead(poussBoutG) == LOW) {
+    // read raw ADC values into array and map to 0-255 for colors
+    for (int i = 0; i < NUM_SLIDERS; i++) {
+      analogSliderValues[i] = analogRead(analogInputs[i]);
+    }
+    color1 = analogSliderValues[0] / 4;
+    color2 = analogSliderValues[1] / 4;
+    color3 = analogSliderValues[2] / 4;
+    ledsDirty = true;
+  }
+
+#if !FAST_INPUT_ONLY
+  if (digitalRead(poussBoutD) == LOW) {
+    bright = (analogRead(analogInputs[0]) / 4);
+    speed = (analogRead(analogInputs[1]) / 25);
+  } else {
+    // Update color variables normally when not holding poussBoutG
+    color1 = (analogRead(analogInputs[0]) / 4);
+    color2 = (analogRead(analogInputs[1]) / 4);
+    color3 = (analogRead(analogInputs[2]) / 4);
   }
 #endif
 
@@ -500,8 +518,8 @@ void sendSliderValues() {
     }
   }
 
+  // Ajout du suffixe demandé
   builtString += String("|20");
-  
   Serial.println(builtString); // Envoi des valeurs des potentiomètres au port série
 }
 

@@ -43,7 +43,7 @@ Adafruit_NeoPixel *strip = nullptr;
 // Runtime state
 uint16_t lastPots[3] = {0,0,0};
 unsigned long lastPotSend = 0;
-const unsigned long POT_SEND_INTERVAL = 200; // ms
+const unsigned long POT_SEND_INTERVAL = 100; // ms (envoi toutes les 100 ms)
 
 // Debounce
 unsigned long lastDebounceTime[5];
@@ -129,6 +129,10 @@ void setup() {
   strip->begin();
   strip->show();
   applyLedColors();
+
+  // envoyer immédiatement les valeurs des potentiomètres (par défaut activé)
+  lastPotSend = millis();
+  sendPots();
 
   sendLine("OK:Device Ready");
   sendLine("HELP:Send 'HELP' for commands");

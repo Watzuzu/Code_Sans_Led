@@ -22,13 +22,16 @@ struct Config {
   uint8_t version;
   uint8_t ledPin;       // data pin for WS2812
   uint8_t indLeftPin;   // indicator LED left
+  uint8_t indLeftActiveHigh;
   uint8_t indRightPin;  // indicator LED right
+  uint8_t indRightActiveHigh;
   uint8_t maps[3][3];   // mode (0..2) x button (0..2) -> action code
   uint8_t colors[3][3]; // 3 leds, RGB each
+  uint8_t potsEnabled;  // 1 = send pots periodically, 0 = disabled
 };
 
 const uint32_t CFG_MAGIC = 0xC0FFEE42;
-const uint8_t CFG_VERSION = 1;
+const uint8_t CFG_VERSION = 3;
 const int EEPROM_ADDR = 0;
 
 Config cfg;
@@ -87,7 +90,13 @@ void onMainButtonEvent(uint8_t btnIdx, bool down, uint8_t mode);
 
 void setup() {
   Serial.begin(9600);
-  delay(50);
+  // attendre que le terminal série soit prêt (utile pour USB CDC)
+  unsigned long start = millis();
+  while (millis() - start < 2000) {
+    if (Serial) break;
+  }
+  // initialiser le port UART matériel (Serial1) pour sortie TTL permanente
+  Serial1.begin(9600);
   // inputs
   for (int i=0;i<3;i++) {
     pinMode(MAIN_BTN_PINS[i], INPUT_PULLUP);
@@ -101,9 +110,16 @@ void setup() {
   // load config
   loadConfig();
 
-  // indicator LEDs if defined
-  if (cfg.indLeftPin != 255) pinMode(cfg.indLeftPin, OUTPUT);
-  if (cfg.indRightPin != 255) pinMode(cfg.indRightPin, OUTPUT);
+  // indicator LEDs if defined (respect polarity)
+  if (cfg.indLeftPin != 255) {
+    pinMode(cfg.indLeftPin, OUTPUT);
+    // ensure off initially (activeHigh ? LOW : HIGH)
+    digitalWrite(cfg.indLeftPin, cfg.indLeftActiveHigh ? LOW : HIGH);
+  }
+  if (cfg.indRightPin != 255) {
+    pinMode(cfg.indRightPin, OUTPUT);
+    digitalWrite(cfg.indRightPin, cfg.indRightActiveHigh ? LOW : HIGH);
+  }
 
   // setup NeoPixel strip with configured pin
   if (strip) { delete strip; strip = nullptr; }
@@ -132,13 +148,20 @@ void loop() {
   bool curRight = digitalRead(RIGHT_BTN_PIN) == LOW;
   if (curLeft != lastBtnStateLeft) {
     lastBtnStateLeft = curLeft;
-    // update indicator LED
-    if (cfg.indLeftPin != 255) digitalWrite(cfg.indLeftPin, curLeft ? HIGH : LOW);
+    // update indicator LED: button pressed => LOW, so lit when pressed
+    if (cfg.indLeftPin != 255) {
+      bool lit = curLeft; // true if pressed (LOW)
+      // if activeHigh==1 then lit -> HIGH else lit -> LOW
+      digitalWrite(cfg.indLeftPin, cfg.indLeftActiveHigh ? (lit ? HIGH : LOW) : (lit ? LOW : HIGH));
+    }
     // left press may change mode; we don't send separate events for modifiers here
   }
   if (curRight != lastBtnStateRight) {
     lastBtnStateRight = curRight;
-    if (cfg.indRightPin != 255) digitalWrite(cfg.indRightPin, curRight ? HIGH : LOW);
+    if (cfg.indRightPin != 255) {
+      bool lit = curRight;
+      digitalWrite(cfg.indRightPin, cfg.indRightActiveHigh ? (lit ? HIGH : LOW) : (lit ? LOW : HIGH));
+    }
   }
 
   // read main buttons with debounce
@@ -179,12 +202,14 @@ void onMainButtonEvent(uint8_t btnIdx, bool down, uint8_t mode) {
   sendLine(s);
   // optionally toggle led on the strip for immediate feedback
   if (action == ACT_PREV && down && strip) {
-    strip->setPixelColor(0, strip->Color(0, 255, 0));
+    int phys = (NUM_LEDS - 1) - 0; // logical 0 -> physical
+    strip->setPixelColor(phys, strip->Color(0, 255, 0));
     strip->show();
   }
 }
 
 void sendPots() {
+  if (cfg.potsEnabled == 0) return;
   uint16_t v[3];
   for (int i=0;i<3;i++) {
     v[i] = analogRead(POT_PINS[i]);
@@ -195,13 +220,19 @@ void sendPots() {
 }
 
 void sendLine(const String &s) {
+  // envoyer sur USB CDC et sur le UART matériel (Serial1) afin d'assurer
+  // que les messages sont disponibles même sans ouverture du Moniteur Série USB
   Serial.println(s);
+  Serial1.println(s);
 }
 
 void applyLedColors() {
   if (!strip) return;
+  // écrire en inversant l'ordre pour corriger la disposition gauche/droite
   for (int i=0;i<NUM_LEDS;i++) {
-    strip->setPixelColor(i, strip->Color(cfg.colors[i][0], cfg.colors[i][1], cfg.colors[i][2]));
+    // write logical i to physical index
+    int phys = (NUM_LEDS - 1) - i;
+    strip->setPixelColor(phys, strip->Color(cfg.colors[i][0], cfg.colors[i][1], cfg.colors[i][2]));
   }
   strip->show();
 }
@@ -226,7 +257,10 @@ void setDefaults() {
   cfg.version = CFG_VERSION;
   cfg.ledPin = 16;
   cfg.indLeftPin = 7;
+  cfg.indLeftActiveHigh = 1;
   cfg.indRightPin = 8;
+  cfg.indRightActiveHigh = 1;
+  cfg.potsEnabled = 1;
   // default maps: mode0 -> PREV, PLAYPAUSE, NEXT
   cfg.maps[0][0] = ACT_PREV;
   cfg.maps[0][1] = ACT_PLAYPAUSE;
@@ -349,13 +383,28 @@ void handleSerial() {
               if (cfg.indRightPin != 255) pinMode(cfg.indRightPin, OUTPUT);
               sendLine("OK:IND_SET");
             } else sendLine("ERR:SET_IND_SYNTAX");
+          } else if (cmd == "SET_IND_POL") {
+            int lp,rp;
+            if (sscanf(rest.c_str(), "%d %d", &lp,&rp) == 2) {
+              cfg.indLeftActiveHigh = (uint8_t)(lp?1:0);
+              cfg.indRightActiveHigh = (uint8_t)(rp?1:0);
+              sendLine("OK:IND_POL_SET");
+            } else sendLine("ERR:SET_IND_POL_SYNTAX");
+          } else if (cmd == "POTS_ON") {
+            cfg.potsEnabled = 1;
+            sendLine("OK:POTS_ON");
+          } else if (cmd == "POTS_OFF") {
+            cfg.potsEnabled = 0;
+            sendLine("OK:POTS_OFF");
           } else if (cmd == "SAVE") {
             saveConfig();
           } else if (cmd == "RESET") {
             setDefaults();
             saveConfig();
           } else if (cmd == "GET_CFG") {
-            String s = "CFG:LED_PIN=" + String((int)cfg.ledPin) + ",INDL=" + String((int)cfg.indLeftPin) + ",INDR=" + String((int)cfg.indRightPin);
+            String s = "CFG:LED_PIN=" + String((int)cfg.ledPin) + ",INDL=" + String((int)cfg.indLeftPin) + ",INDR=" + String((int)cfg.indRightPin)
+              + ",INDL_POL=" + String((int)cfg.indLeftActiveHigh) + ",INDR_POL=" + String((int)cfg.indRightActiveHigh)
+              + ",POTS=" + String((int)cfg.potsEnabled);
             sendLine(s);
           } else {
             sendLine("ERR:UnknownCmd");

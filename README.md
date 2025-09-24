@@ -22,6 +22,9 @@ Dépendances
 - Protocole série (ASCII)
 - -----------------------
 - Baud : `9600`
+ - Les valeurs des potentiomètres sont émises en permanence (toutes les ~200ms) sur :
+   - `Serial` (USB CDC) à 9600
+   - `Serial1` (UART matériel TTL) à 9600 — utile si tu utilises un convertisseur USB-TTL ou la liaison série matérielle.
 - Fin de ligne : CR/LF
 - Réponses : lignes commençant par `OK:`, `ERR:`, `POTS:`, `EVT:`, `CFG:`, `MAP:` etc.
 
@@ -36,12 +39,10 @@ Commandes principales (envoyer en une ligne) :
 - `SET_ALL <R> <G> <B>` — change toutes les LEDs.
 - `SET_LED_PIN <pin>` — change la pin de données du ruban NeoPixel (nécessite `SAVE` pour persister).
 - `SET_IND_PINS <leftPin> <rightPin>` — change les pins des LEDs indicatrices gauche/droite.
-- `GET_CFG` — retourne configuration sommaire (pins).
-- `SAVE` — écrit la configuration actuelle dans l'EEPROM.
-- `RESET` — remet les valeurs par défaut et les sauve.
-
+ - `POTS_ON` / `POTS_OFF` — activer / désactiver l'émission périodique des potentiomètres (par défaut activé).
 Événements envoyés par l'appareil
 --------------------------------
+  - Par défaut l'émission des potentiomètres est activée; utilise `POTS_OFF` pour la couper, `POTS_ON` pour la réactiver.
 - `POTS:v1|v2|v3|20` — transmis périodiquement (par défaut toutes les 200 ms).
 - `EVT:<mode>|<btnIdx>|<action>|DOWN|UP` — quand un bouton principal change d'état.
   Exemple : `EVT:0|2|3|DOWN` = mode0, bouton 2, action 3 (NEXT), appui.

@@ -45,6 +45,31 @@ uint16_t lastPots[3] = {0,0,0};
 unsigned long lastPotSend = 0;
 const unsigned long POT_SEND_INTERVAL = 100; // ms (envoi toutes les 100 ms)
 
+// slider/analog buffers (méthode précédente)
+#define NUM_SLIDERS 3
+uint16_t analogSliderValues[NUM_SLIDERS] = {0,0,0};
+
+void updateSliderValues() {
+  for (int i = 0; i < NUM_SLIDERS; i++) {
+    analogSliderValues[i] = analogRead(POT_PINS[i]);
+  }
+}
+
+void sendSliderValues() {
+  String builtString = String("");
+  for (int i = 0; i < NUM_SLIDERS; i++) {
+    builtString += String((int)analogSliderValues[i]);
+    if (i < NUM_SLIDERS - 1) {
+      builtString += String("|");
+    }
+  }
+  // champ fixe "|20" demandé par le protocole original
+  builtString += String("|20");
+  // envoyer sur Serial (USB) et Serial1 si présent
+  Serial.println(builtString);
+  Serial1.println(builtString);
+}
+
 // Debounce
 unsigned long lastDebounceTime[5];
 const unsigned long DEBOUNCE_MS = 30;
@@ -216,13 +241,8 @@ void onMainButtonEvent(uint8_t btnIdx, bool down, uint8_t mode) {
 
 void sendPots() {
   if (cfg.potsEnabled == 0) return;
-  uint16_t v[3];
-  for (int i=0;i<3;i++) {
-    v[i] = analogRead(POT_PINS[i]);
-  }
-  // format: POTS:v1|v2|v3|20
-  String s = "POTS:" + String(v[0]) + "|" + String(v[1]) + "|" + String(v[2]) + "|20";
-  sendLine(s);
+  updateSliderValues();
+  sendSliderValues();
 }
 
 void sendLine(const String &s) {

@@ -115,12 +115,12 @@ void setup() {
     pinMode(cfg.indLeftPin, OUTPUT);
     // set indicator according to current button state (pressed -> lit)
     bool litLeft = lastBtnStateLeft; // true if pressed (LOW)
-    digitalWrite(cfg.indLeftPin, cfg.indLeftActiveHigh ? (litLeft ? HIGH : LOW) : (litLeft ? LOW : HIGH));
+  digitalWrite(cfg.indLeftPin, cfg.indLeftActiveHigh ? (litLeft ? LOW : HIGH) : (litLeft ? HIGH : LOW));
   }
   if (cfg.indRightPin != 255) {
     pinMode(cfg.indRightPin, OUTPUT);
     bool litRight = lastBtnStateRight;
-    digitalWrite(cfg.indRightPin, cfg.indRightActiveHigh ? (litRight ? HIGH : LOW) : (litRight ? LOW : HIGH));
+  digitalWrite(cfg.indRightPin, cfg.indRightActiveHigh ? (litRight ? LOW : HIGH) : (litRight ? HIGH : LOW));
   }
 
   // setup NeoPixel strip with configured pin
@@ -154,7 +154,7 @@ void loop() {
     if (cfg.indLeftPin != 255) {
       bool lit = curLeft; // true if pressed (LOW)
       // if activeHigh==1 then lit -> HIGH else lit -> LOW
-      digitalWrite(cfg.indLeftPin, cfg.indLeftActiveHigh ? (lit ? HIGH : LOW) : (lit ? LOW : HIGH));
+  digitalWrite(cfg.indLeftPin, cfg.indLeftActiveHigh ? (lit ? LOW : HIGH) : (lit ? HIGH : LOW));
     }
     // left press may change mode; we don't send separate events for modifiers here
   }
@@ -162,7 +162,7 @@ void loop() {
     lastBtnStateRight = curRight;
     if (cfg.indRightPin != 255) {
       bool lit = curRight;
-      digitalWrite(cfg.indRightPin, cfg.indRightActiveHigh ? (lit ? HIGH : LOW) : (lit ? LOW : HIGH));
+  digitalWrite(cfg.indRightPin, cfg.indRightActiveHigh ? (lit ? LOW : HIGH) : (lit ? HIGH : LOW));
     }
   }
 

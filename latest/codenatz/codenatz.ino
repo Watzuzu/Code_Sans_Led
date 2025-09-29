@@ -203,8 +203,11 @@ void loop() {
 
   }
 
-  delay(10); // Petit délai pour éviter de saturer le processeur
+  delay(100); // Petit délai pour éviter de saturer le processeur
   
+  updateSliderValues(); // Lire les valeurs des potentiomètres
+  sendSliderValues();
+
 }
 
 void updateSliderValues() {

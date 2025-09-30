@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contrôleur Audio DIY - Tidelite</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .connection-panel {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-danger {
+            background: #f44336;
+        }
+
+        .btn-danger:hover {
+            background: #da190b;
+        }
+
+        .status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .potentiometers {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .pot-display {
+            text-align: center;
+        }
+
+        .pot-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 8px;
+        }
+
+        .pot-bar {
+            width: 100%;
+            height: 20px;
+            background: #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .pot-fill {
+            height: 100%;
+            transition: width 0.2s ease;
+            border-radius: 10px;
+        }
+
+        .pot1-fill { background: linear-gradient(90deg, #ff6b6b, #ee5a24); }
+        .pot2-fill { background: linear-gradient(90deg, #4ecdc4, #44a08d); }
+        .pot3-fill { background: linear-gradient(90deg, #45b7d1, #96c93d); }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .control-group {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .led-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .color-picker {
+            width: 50px;
+            height: 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .log-panel {
+            height: 200px;
+            overflow-y: auto;
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .command-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .command-input input {
+            flex: 1;
+        }
+
+        @media (max-width: 768px) {
+            .connection-panel {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .potentiometers {
+                grid-template-columns: 1fr;
+            }
+            
+            .actions-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .action-examples {
+                flex-direction: column;
+            }
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #333;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            z-index: 1000;
+            display: none;
+        }
+
+        .toast.success {
+            background: #4CAF50;
+        }
+
+        .toast.error {
+            background: #f44336;
+        }
+
+        .actions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .action-category {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .action-category h4 {
+            margin-bottom: 15px;
+            color: #495057;
+            border-bottom: 2px solid #dee2e6;
+            padding-bottom: 5px;
+        }
+
+        .action-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .action-item {
+            background: white;
+            border-radius: 6px;
+            padding: 12px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .action-item strong {
+            display: block;
+            color: #2c3e50;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 4px;
+        }
+
+        .action-desc {
+            display: block;
+            color: #6c757d;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .action-examples {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn-small {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s ease;
+        }
+
+        .btn-small:hover {
+            background: #138496;
+        }
+    </style>
+</head>
+<body>
+    <div class="toast" id="toast"></div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>🎵 Contrôleur Audio DIY</h1>
+            <p>Interface de contrôle pour Arduino Pro Micro</p>
+        </div>
+
+        <!-- Panneau de connexion -->
+        <div class="card">
+            <h3>📡 Connexion Série</h3>
+            <div class="connection-panel">
+                <button id="connectBtn" class="btn">Se connecter</button>
+                <button id="disconnectBtn" class="btn btn-danger" disabled>Se déconnecter</button>
+                <div id="connectionStatus" class="status disconnected">Déconnecté</div>
+                <select id="baudRate">
+                    <option value="9600" selected>9600 baud</option>
+                    <option value="115200">115200 baud</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Affichage des potentiomètres -->
+        <div class="card">
+            <h3>🎛️ Potentiomètres en temps réel</h3>
+            <div class="potentiometers">
+                <div class="pot-display">
+                    <h4>Potentiomètre 1</h4>
+                    <div id="pot1Value" class="pot-value">0</div>
+                    <div class="pot-bar">
+                        <div id="pot1Fill" class="pot-fill pot1-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="pot-display">
+                    <h4>Potentiomètre 2</h4>
+                    <div id="pot2Value" class="pot-value">0</div>
+                    <div class="pot-bar">
+                        <div id="pot2Fill" class="pot-fill pot2-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="pot-display">
+                    <h4>Potentiomètre 3</h4>
+                    <div id="pot3Value" class="pot-value">0</div>
+                    <div class="pot-bar">
+                        <div id="pot3Fill" class="pot-fill pot3-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contrôles -->
+        <div class="card">
+            <h3>⚙️ Configuration</h3>
+            <div class="controls-grid">
+                
+                <!-- Configuration des LEDs -->
+                <div class="control-group">
+                    <h4>💡 Contrôle LEDs</h4>
+                    <div class="led-control">
+                        <span>LED 1:</span>
+                        <input type="color" id="led1Color" class="color-picker" value="#00ff00">
+                        <button class="btn" onclick="setLedColor(1)">Appliquer</button>
+                    </div>
+                    <div class="led-control">
+                        <span>LED 2:</span>
+                        <input type="color" id="led2Color" class="color-picker" value="#ffffff">
+                        <button class="btn" onclick="setLedColor(2)">Appliquer</button>
+                    </div>
+                    <div class="led-control">
+                        <span>LED 3:</span>
+                        <input type="color" id="led3Color" class="color-picker" value="#ff0000">
+                        <button class="btn" onclick="setLedColor(3)">Appliquer</button>
+                    </div>
+                    <button class="btn" onclick="setAllLeds()">Toutes identiques</button>
+                </div>
+
+                <!-- Configuration des boutons -->
+                <div class="control-group">
+                    <h4>🔘 Mapping Boutons</h4>
+                    <div class="input-group">
+                        <label>Mode:</label>
+                        <select id="buttonMode">
+                            <option value="0">Mode 0 (Normal)</option>
+                            <option value="1">Mode 1 (Gauche pressé)</option>
+                            <option value="2">Mode 2 (Gauche + Droite)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Bouton:</label>
+                        <select id="buttonIndex">
+                            <option value="1">Bouton 1</option>
+                            <option value="2">Bouton 2</option>
+                            <option value="3">Bouton 3</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Action:</label>
+                        <input type="text" id="buttonAction" placeholder="ex: PREV, PLAY, NEXT">
+                    </div>
+                    <button class="btn" onclick="setButtonMapping()">Configurer</button>
+                </div>
+
+                <!-- Actions rapides -->
+                <div class="control-group">
+                    <h4>⚡ Actions Rapides</h4>
+                    <button class="btn" onclick="sendCommand('GET_CFG')">Lire Config</button>
+                    <button class="btn" onclick="sendCommand('GET_MAP')">Lire Mapping</button>
+                    <button class="btn" onclick="sendCommand('SAVE')">Sauvegarder</button>
+                    <button class="btn" onclick="sendCommand('RESET')">Reset Config</button>
+                    <button class="btn" onclick="sendCommand('POTS_ON')">Activer Pots</button>
+                    <button class="btn" onclick="sendCommand('POTS_OFF')">Désactiver Pots</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Console -->
+        <div class="card">
+            <h3>💻 Console Série</h3>
+            <div id="serialLog" class="log-panel"></div>
+            <div class="command-input">
+                <input type="text" id="commandInput" placeholder="Entrez une commande..." onkeypress="handleKeyPress(event)">
+                <button class="btn" onclick="sendCustomCommand()">Envoyer</button>
+                <button class="btn" onclick="clearLog()">Effacer</button>
+            </div>
+        </div>
+
+        <!-- Liste des actions disponibles -->
+        <div class="card">
+            <h3>📋 Actions Disponibles</h3>
+            <div class="actions-grid">
+                
+                <div class="action-category">
+                    <h4>🔧 Configuration Générale</h4>
+                    <div class="action-list">
+                        <div class="action-item">
+                            <strong>HELP</strong>
+                            <span class="action-desc">Affiche l'aide</span>
+                            <button class="btn-small" onclick="sendCommand('HELP')">Tester</button>
+                        </div>
+                        <div class="action-item">
+                            <strong>PING</strong>
+                            <span class="action-desc">Test de connexion (répond PONG)</span>
+                            <button class="btn-small" onclick="sendCommand('PING')">Tester</button>
+                        </div>
+                        <div class="action-item">
+                            <strong>GET_CFG</strong>
+                            <span class="action-desc">Lire la configuration actuelle</span>
+                            <button class="btn-small" onclick="sendCommand('GET_CFG')">Tester</button>
+                        </div>
+                        <div class="action-item">
+                            <strong>SAVE</strong>
+                            <span class="action-desc">Sauvegarder config en EEPROM</span>
+                            <button class="btn-small" onclick="sendCommand('SAVE')">Tester</button>
+                        </div>
+                        <div class="action-item">
+                            <strong>RESET</strong>
+                            <span class="action-desc">Restaurer config par défaut</span>
+                            <button class="btn-small" onclick="sendCommand('RESET')">Tester</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-category">
+                    <h4>🎛️ Potentiomètres</h4>
+                    <div class="action-list">
+                        <div class="action-item">
+                            <strong>POTS_ON</strong>
+                            <span class="action-desc">Activer envoi automatique des valeurs</span>
+                            <button class="btn-small" onclick="sendCommand('POTS_ON')">Tester</button>
+                        </div>
+                        <div class="action-item">
+                            <strong>POTS_OFF</strong>
+                            <span class="action-desc">Désactiver envoi automatique</span>
+                            <button class="btn-small" onclick="sendCommand('POTS_OFF')">Tester</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-category">
+                    <h4>💡 Contrôle LEDs</h4>
+                    <div class="action-list">
+                        <div class="action-item">
+                            <strong>SET_LED &lt;i&gt; &lt;R&gt; &lt;G&gt; &lt;B&gt;</strong>
+                            <span class="action-desc">Définir couleur LED (i=1..3, RGB=0..255)</span>
+                            <div class="action-examples">
+                                <button class="btn-small" onclick="sendCommand('SET_LED 1 255 0 0')">LED1 Rouge</button>
+                                <button class="btn-small" onclick="sendCommand('SET_LED 2 0 255 0')">LED2 Verte</button>
+                                <button class="btn-small" onclick="sendCommand('SET_LED 3 0 0 255')">LED3 Bleue</button>
+                            </div>
+                        </div>
+                        <div class="action-item">
+                            <strong>SET_ALL &lt;R&gt; &lt;G&gt; &lt;B&gt;</strong>
+                            <span class="action-desc">Définir même couleur pour toutes les LEDs</span>
+                            <div class="action-examples">
+                                <button class="btn-small" onclick="sendCommand('SET_ALL 255 255 255')">Toutes Blanches</button>
+                                <button class="btn-small" onclick="sendCommand('SET_ALL 0 0 0')">Toutes Éteintes</button>
+                            </div>
+                        </div>
+                        <div class="action-item">
+                            <strong>SET_LED_PIN &lt;pin&gt;</strong>
+                            <span class="action-desc">Changer pin du ruban LED (défaut: 16)</span>
+                            <button class="btn-small" onclick="sendCommand('SET_LED_PIN 16')">Pin 16</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-category">
+                    <h4>🔘 Mapping Boutons</h4>
+                    <div class="action-list">
+                        <div class="action-item">
+                            <strong>SET_MAP &lt;mode&gt; &lt;btn&gt; &lt;action&gt;</strong>
+                            <span class="action-desc">Configurer action bouton (mode=0..2, btn=1..3)</span>
+                            <div class="action-examples">
+                                <button class="btn-small" onclick="sendCommand('SET_MAP 0 1 PREV')">Mode0 Btn1=PREV</button>
+                                <button class="btn-small" onclick="sendCommand('SET_MAP 0 2 PLAY')">Mode0 Btn2=PLAY</button>
+                                <button class="btn-small" onclick="sendCommand('SET_MAP 0 3 NEXT')">Mode0 Btn3=NEXT</button>
+                            </div>
+                        </div>
+                        <div class="action-item">
+                            <strong>GET_MAP</strong>
+                            <span class="action-desc">Lire mapping actuel de tous les boutons</span>
+                            <button class="btn-small" onclick="sendCommand('GET_MAP')">Tester</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-category">
+                    <h4>🔆 LEDs Indicatrices</h4>
+                    <div class="action-list">
+                        <div class="action-item">
+                            <strong>SET_IND_PINS &lt;left&gt; &lt;right&gt;</strong>
+                            <span class="action-desc">Définir pins des LEDs indicatrices (défaut: 7, 8)</span>
+                            <button class="btn-small" onclick="sendCommand('SET_IND_PINS 7 8')">Pins 7,8</button>
+                        </div>
+                        <div class="action-item">
+                            <strong>SET_IND_POL &lt;left&gt; &lt;right&gt;</strong>
+                            <span class="action-desc">Polarité LEDs (0=activeLow, 1=activeHigh)</span>
+                            <div class="action-examples">
+                                <button class="btn-small" onclick="sendCommand('SET_IND_POL 1 1')">ActiveHigh</button>
+                                <button class="btn-small" onclick="sendCommand('SET_IND_POL 0 0')">ActiveLow</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let port = null;
+        let reader = null;
+
+        // Fonction pour afficher les notifications
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type}`;
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+
+        // Connexion série
+        async function connectSerial() {
+            try {
+                const baudRate = parseInt(document.getElementById('baudRate').value);
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate });
+
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                document.getElementById('connectionStatus').textContent = 'Connecté';
+                document.getElementById('connectionStatus').className = 'status connected';
+
+                showToast('Connexion établie !');
+                startReading();
+            } catch (error) {
+                showToast('Erreur de connexion: ' + error.message, 'error');
+                console.error('Erreur:', error);
+            }
+        }
+
+        // Déconnexion
+        async function disconnectSerial() {
+            try {
+                if (reader) {
+                    await reader.cancel();
+                    reader = null;
+                }
+                if (port) {
+                    await port.close();
+                    port = null;
+                }
+
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                document.getElementById('connectionStatus').textContent = 'Déconnecté';
+                document.getElementById('connectionStatus').className = 'status disconnected';
+
+                showToast('Déconnecté');
+            } catch (error) {
+                showToast('Erreur de déconnexion: ' + error.message, 'error');
+            }
+        }
+
+        // Lecture des données série
+        async function startReading() {
+            if (!port) return;
+
+            try {
+                const textDecoder = new TextDecoderStream();
+                const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+                reader = textDecoder.readable.getReader();
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const lines = value.split('\n');
+                    for (let line of lines) {
+                        line = line.trim();
+                        if (line) {
+                            handleSerialData(line);
+                            logMessage('← ' + line);
+                        }
+                    }
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    showToast('Erreur de lecture: ' + error.message, 'error');
+                }
+            }
+        }
+
+        // Traitement des données reçues
+        function handleSerialData(data) {
+            // Traitement des valeurs des potentiomètres
+            if (data.includes('|')) {
+                // Format attendu: "v1|v2|v3|20" ou "POTS:v1|v2|v3|20"
+                const cleanData = data.replace('POTS:', '');
+                const values = cleanData.split('|');
+                
+                if (values.length >= 3) {
+                    updatePotentiometer(1, parseInt(values[0]) || 0);
+                    updatePotentiometer(2, parseInt(values[1]) || 0);
+                    updatePotentiometer(3, parseInt(values[2]) || 0);
+                }
+            }
+        }
+
+        // Mise à jour de l'affichage des potentiomètres
+        function updatePotentiometer(index, value) {
+            const percentage = (value / 1023 * 100).toFixed(1);
+            document.getElementById(`pot${index}Value`).textContent = value;
+            document.getElementById(`pot${index}Fill`).style.width = percentage + '%';
+        }
+
+        // Envoi de commande
+        async function sendCommand(command) {
+            if (!port) {
+                showToast('Pas de connexion série', 'error');
+                return;
+            }
+
+            try {
+                const writer = port.writable.getWriter();
+                await writer.write(new TextEncoder().encode(command + '\r\n'));
+                writer.releaseLock();
+                logMessage('→ ' + command);
+            } catch (error) {
+                showToast('Erreur d\'envoi: ' + error.message, 'error');
+            }
+        }
+
+        // Fonctions spécifiques
+        function setLedColor(ledIndex) {
+            const color = document.getElementById(`led${ledIndex}Color`).value;
+            const r = parseInt(color.substr(1, 2), 16);
+            const g = parseInt(color.substr(3, 2), 16);
+            const b = parseInt(color.substr(5, 2), 16);
+            
+            sendCommand(`SET_LED ${ledIndex} ${r} ${g} ${b}`);
+        }
+
+        function setAllLeds() {
+            const color = document.getElementById('led1Color').value;
+            const r = parseInt(color.substr(1, 2), 16);
+            const g = parseInt(color.substr(3, 2), 16);
+            const b = parseInt(color.substr(5, 2), 16);
+            
+            sendCommand(`SET_ALL ${r} ${g} ${b}`);
+        }
+
+        function setButtonMapping() {
+            const mode = document.getElementById('buttonMode').value;
+            const buttonIndex = document.getElementById('buttonIndex').value;
+            const action = document.getElementById('buttonAction').value;
+            
+            if (action.trim()) {
+                sendCommand(`SET_MAP ${mode} ${buttonIndex} ${action}`);
+            } else {
+                showToast('Veuillez entrer une action', 'error');
+            }
+        }
+
+        function sendCustomCommand() {
+            const command = document.getElementById('commandInput').value.trim();
+            if (command) {
+                sendCommand(command);
+                document.getElementById('commandInput').value = '';
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendCustomCommand();
+            }
+        }
+
+        function logMessage(message) {
+            const log = document.getElementById('serialLog');
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('serialLog').innerHTML = '';
+        }
+
+        // Event listeners
+        document.getElementById('connectBtn').addEventListener('click', connectSerial);
+        document.getElementById('disconnectBtn').addEventListener('click', disconnectSerial);
+
+        // Vérification du support Web Serial API
+        if (!('serial' in navigator)) {
+            showToast('Web Serial API non supporté. Utilisez Chrome/Edge.', 'error');
+            document.getElementById('connectBtn').disabled = true;
+        }
+
+        // Message de bienvenue
+        logMessage('Interface prête. Connectez-vous pour commencer.');
+    </script>
+</body>
+</html>

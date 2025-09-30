@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <Adafruit_NeoPixel.h>
+#include <Keyboard.h>
 
 // Hardware default pins
 const uint8_t POT_PINS[3] = {A0, A1, A2};
@@ -103,6 +104,51 @@ const char* actionName(uint8_t code) {
   }
 }
 
+// Fonction pour exécuter les actions directement via HID
+void executeAction(uint8_t action) {
+  switch(action) {
+    case ACT_PREV:
+      // Touche média : Piste précédente
+      Keyboard.write(KEY_MEDIA_PREV_TRACK);
+      break;
+    
+    case ACT_PLAYPAUSE:
+      // Touche média : Play/Pause
+      Keyboard.write(KEY_MEDIA_PLAY_PAUSE);
+      break;
+    
+    case ACT_NEXT:
+      // Touche média : Piste suivante
+      Keyboard.write(KEY_MEDIA_NEXT_TRACK);
+      break;
+    
+    case ACT_STOP:
+      // Touche média : Stop
+      Keyboard.write(KEY_MEDIA_STOP);
+      break;
+    
+    case ACT_CUSTOM1:
+      // Volume bas
+      Keyboard.write(KEY_MEDIA_VOLUME_DOWN);
+      break;
+    
+    case ACT_CUSTOM2:
+      // Volume haut
+      Keyboard.write(KEY_MEDIA_VOLUME_UP);
+      break;
+    
+    case ACT_CUSTOM3:
+      // Mute
+      Keyboard.write(KEY_MEDIA_MUTE);
+      break;
+    
+    case ACT_NONE:
+    default:
+      // Aucune action
+      break;
+  }
+}
+
 // Forward declarations
 void loadConfig();
 void saveConfig();
@@ -122,6 +168,10 @@ void setup() {
   }
   // initialiser le port UART matériel (Serial1) pour sortie TTL permanente
   Serial1.begin(9600);
+  
+  // initialiser le clavier HID
+  Keyboard.begin();
+  
   // inputs
   for (int i=0;i<3;i++) {
     pinMode(MAIN_BTN_PINS[i], INPUT_PULLUP);
@@ -222,6 +272,8 @@ void loop() {
 
 void onMainButtonEvent(uint8_t btnIdx, bool down, uint8_t mode) {
   uint8_t action = cfg.maps[mode][btnIdx];
+  
+  // Envoyer l'événement sur le port série (pour debug/monitoring)
   String s = "EVT:";
   s += String(mode);
   s += "|";
@@ -231,11 +283,35 @@ void onMainButtonEvent(uint8_t btnIdx, bool down, uint8_t mode) {
   s += "|";
   s += (down?"DOWN":"UP");
   sendLine(s);
-  // optionally toggle led on the strip for immediate feedback
-  if (action == ACT_PREV && down && strip) {
-    int phys = (NUM_LEDS - 1) - 0; // logical 0 -> physical
-    strip->setPixelColor(phys, strip->Color(0, 255, 0));
-    strip->show();
+  
+  // Exécuter l'action directement via HID (seulement sur appui, pas sur relâchement)
+  if (down && action != ACT_NONE) {
+    executeAction(action);
+    
+    // Feedback visuel sur le ruban LED
+    if (strip) {
+      int phys = (NUM_LEDS - 1) - btnIdx; // LED correspondant au bouton
+      // Couleur selon l'action
+      switch(action) {
+        case ACT_PREV:
+          strip->setPixelColor(phys, strip->Color(255, 0, 0)); // Rouge
+          break;
+        case ACT_PLAYPAUSE:
+          strip->setPixelColor(phys, strip->Color(0, 255, 0)); // Vert
+          break;
+        case ACT_NEXT:
+          strip->setPixelColor(phys, strip->Color(0, 0, 255)); // Bleu
+          break;
+        default:
+          strip->setPixelColor(phys, strip->Color(255, 255, 255)); // Blanc
+          break;
+      }
+      strip->show();
+      
+      // Restaurer la couleur originale après 200ms
+      delay(200);
+      applyLedColors();
+    }
   }
 }
 
